@@ -82,7 +82,12 @@ jobs:
     - name: Cleanup
       uses: rokibhasansagar/slimhub_actions@main
       
-    - name: Set Swap Space
+    - name: Free space before swap
+  run: |
+    sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+    sudo docker rmi $(sudo docker images -q) || true
+
+- name: Set Swap Space (Safe Mode)
       uses: pierotofy/set-swap-space@master
       with:
         swap-size-gb: 24

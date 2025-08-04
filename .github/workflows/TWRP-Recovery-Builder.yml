@@ -83,7 +83,7 @@ jobs:
       uses: rokibhasansagar/slimhub_actions@main
       
     - name: Free space before swap
-       run: |
+      run: |
         sudo rm -rf "$AGENT_TOOLSDIRECTORY"
         sudo docker rmi $(sudo docker images -q) || true
 

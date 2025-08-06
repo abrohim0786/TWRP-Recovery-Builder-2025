@@ -1,4 +1,4 @@
-name: TWRP Recovery Builder ares 2025 (Optimized)
+name: TWRP Recovery Builder ares 2025 (Stable Fix)
 
 on:
   workflow_dispatch:
@@ -39,9 +39,9 @@ on:
         - recovery
         - vendorboot
       LDCHECK:
-        description: 'Path of blobs to check' 
-        required: true
-        default: 'system/bin/qseecomd'
+        description: 'Path of blobs to check (optional, leave empty if not needed)' 
+        required: false
+        default: '' # Changed to empty string to make it optional
       RECOVERY_TAR:
         description: 'Release Recovery.tar For Samsung devices'
         required: false
@@ -257,6 +257,21 @@ jobs:
         tag_name: ${{ github.run_id }}
         body: |
 
+    - name: Checking For Missing Dependencies
+      run: |
+        # Only run ldcheck if LDCHECK input is provided
+        if [ -n "${{ github.event.inputs.LDCHECK }}" ]; then
+          cd tools
+          mv -n libneeds ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
+          mv -n ldcheck ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
+          cd ../workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
+          python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
+          echo "Done checking missing dependencies. Review, and reconfigure your tree."
+        else
+          echo "LDCHECK input not provided, skipping dependency check."
+        fi
+      continue-on-error: true
+
     - name: Release ramdisk-recovery
       uses: softprops/action-gh-release@4634c16e79c963813287e889244c50009e7f0981
       with:
@@ -268,16 +283,6 @@ jobs:
         body: |
           Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}
           Target: ${{ github.event.inputs.BUILD_TARGET}}.img
-          Device: [Device Tree/Branch](${{ env.DEVICE_TREE_URL }}/${{ github.eventinputs.DEVICE_TREE_BRANCH }})
+          Device: [Device Tree/Branch](${{ env.DEVICE_TREE_URL }}/${{ github.event.inputs.DEVICE_TREE_BRANCH }})
           Commit: Most recent [commit](${{ env.DEVICE_TREE_URL }}/commit/${{ env.COMMIT_ID }}) during building.
           MD5 (img): ${{ env.MD5_IMG }}
-          
-    - name: Checking For Missing Dependencies
-      run: |
-        cd tools
-        mv -n libneeds ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
-        mv -n ldcheck ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
-        cd ../workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
-        python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
-        echo "Done checking missing dependencies. Review, and reconfigure your tree."
-      continue-on-error: true

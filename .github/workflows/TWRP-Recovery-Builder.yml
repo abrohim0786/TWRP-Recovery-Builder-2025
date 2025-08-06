@@ -1,4 +1,4 @@
-name: TWRP Recovery Builder 2025
+name: TWRP Recovery Builder ares 2025 (Optimized)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       MANIFEST_BRANCH:
         description: 'TWRP Minimal-Manifest Branch'
         required: true
-        default: ''
+        default: 'twrp-12.1'
         type: choice
         options:
         - twrp-14.1
@@ -92,6 +92,17 @@ jobs:
       with:
         swap-size-gb: 24
         
+    # --- Optimization: Cache APT packages ---
+    - name: Cache APT packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          /var/lib/apt/lists
+          /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-${{ hashFiles('**/Dockerfile', '.github/workflows/*.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-apt-
+
     - name: Prepare the environment
       run: |
        sudo apt update
@@ -123,18 +134,32 @@ jobs:
         if_true: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
         if_false: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git
 
+    # --- Optimization: Cache Repo Sync and Ccache ---
+    - name: Cache Repo Sync and Ccache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.ccache
+          workspace
+        key: ${{ runner.os }}-build-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_NAME }}-${{ hashFiles('workspace/.repo/manifests/*.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_NAME }}-
+          ${{ runner.os }}-build-
+
     - name: Initialize Repo
       run: |
-        mkdir workspace
+        mkdir -p workspace
         cd workspace
         git config --global user.name "abrohim0786"
         git config --global user.email "callofduty.pubg786@gmail.com"
+        # Use --depth=1 for repo init to speed up initial clone
         repo init --depth=1 -u ${{ steps.manifest.outputs.value }} -b ${{ github.event.inputs.MANIFEST_BRANCH }}
   
     - name: Repo Sync
       run: |
         cd workspace
-        repo sync -j$(nproc --all) --force-sync
+        # Use -c (current branch only) and -j (parallel jobs) for faster sync
+        repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle
 
     - name: Clone Device Tree
       run: |
@@ -167,6 +192,11 @@ jobs:
         cd workspace
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
+        # Configure ccache and use it for the build
+        export CCACHE_DIR=~/.ccache
+        export CCACHE_EXEC=/usr/bin/ccache
+        ccache -M 50G # Set ccache size limit (adjust as needed)
+        ccache -z # Clear ccache statistics
         lunch ${{ env.DEVICE_MAKEFILE }}-eng && make clean && make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
         echo "Done building your ${{ github.event.inputs.BUILD_TARGET }}.img"
       

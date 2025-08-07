@@ -1,4 +1,4 @@
-name: TWRP Recovery Builder ares 2025 (Stable Fix)
+name: TWRP Recovery Builder ares 2025 (16-Cores)
 
 on:
   workflow_dispatch:
@@ -41,7 +41,7 @@ on:
       LDCHECK:
         description: 'Path of blobs to check (optional, leave empty if not needed)' 
         required: false
-        default: '' # Changed to empty string to make it optional
+        default: ''
       RECOVERY_TAR:
         description: 'Release Recovery.tar For Samsung devices'
         required: false
@@ -55,7 +55,7 @@ on:
 jobs:
   build:
     name: Build TWRP by ${{ github.actor }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-16-cores
     if: github.event.repository.owner.id == github.event.sender.id
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-name: TWRP Recovery Builder ares 2025 (16-Cores)
+name: TWRP Recovery Builder ares 2025 (High-Performance Self-Hosted)
 
 on:
   workflow_dispatch:
@@ -55,7 +55,9 @@ on:
 jobs:
   build:
     name: Build TWRP by ${{ github.actor }}
-    runs-on: ubuntu-latest-16-cores
+    # IMPORTANT: Replace 'self-hosted' with the actual label of your high-performance runner
+    # If you have a specific label like '128-core-runner', use that instead.
+    runs-on: [self-hosted, linux, x64]
     if: github.event.repository.owner.id == github.event.sender.id
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -99,7 +101,7 @@ jobs:
         path: |
           /var/lib/apt/lists
           /var/cache/apt/archives
-        key: ${{ runner.os }}-apt-${{ hashFiles('**/Dockerfile', '.github/workflows/*.yml') }}
+        key: ${{ runner.os }}-apt-${{ hashFiles(\'**/Dockerfile\', \'.github/workflows/*.yml\') }}
         restore-keys: |
           ${{ runner.os }}-apt-
 
@@ -130,7 +132,7 @@ jobs:
       uses: haya14busa/action-cond@v1
       id: manifest
       with:
-        cond: ${{ github.event.inputs.MANIFEST_BRANCH == 'twrp-11' || github.event.inputs.MANIFEST_BRANCH == 'twrp-12.1'  || github.event.inputs.MANIFEST_BRANCH == 'twrp-14.1' }}
+        cond: ${{ github.event.inputs.MANIFEST_BRANCH == \'twrp-11\' || github.event.inputs.MANIFEST_BRANCH == \'twrp-12.1\'  || github.event.inputs.MANIFEST_BRANCH == \'twrp-14.1\' }}
         if_true: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
         if_false: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git
 
@@ -141,7 +143,7 @@ jobs:
         path: |
           ~/.ccache
           workspace
-        key: ${{ runner.os }}-build-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_NAME }}-${{ hashFiles('workspace/.repo/manifests/*.xml') }}
+        key: ${{ runner.os }}-build-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_NAME }}-${{ hashFiles(\'workspace/.repo/manifests/*.xml\') }}
         restore-keys: |
           ${{ runner.os }}-build-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_NAME }}-
           ${{ runner.os }}-build-
@@ -181,7 +183,7 @@ jobs:
       continue-on-error: true
       
     - name: Install Python 2
-      if: github.event.inputs.MANIFEST_BRANCH != 'twrp-11' && github.event.inputs.MANIFEST_BRANCH != 'twrp-12.1'  && github.event.inputs.MANIFEST_BRANCH != 'twrp-14'
+      if: github.event.inputs.MANIFEST_BRANCH != \'twrp-11\' && github.event.inputs.MANIFEST_BRANCH != \'twrp-12.1\'  && github.event.inputs.MANIFEST_BRANCH != \'twrp-14\'
       run: |
         sudo apt -y install python2
         cd /usr/bin
@@ -215,15 +217,15 @@ jobs:
         if [ -f out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery.img ]; then
             echo "RECOVERY_TYPE=recovery" >> $GITHUB_ENV
             echo "recovery.img file found!"
-            echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_TARGET }}.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
+            echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_TARGET }}.img | cut -d \' \' -f 1)" >> $GITHUB_ENV
         elif [ -f out/target/product/${{ github.event.inputs.DEVICE_NAME }}/boot.img ]; then
             echo "RECOVERY_TYPE=boot" >> $GITHUB_ENV
             echo "boot.img file found!"
-            echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_TARGET }}.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
+            echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_TARGET }}.img | cut -d \' \' -f 1)" >> $GITHUB_ENV
         elif [ -f out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot.img ]; then
             echo "RECOVERY_TYPE=vendor_boot" >> $GITHUB_ENV
             echo "vendor_boot.img file found!"
-            echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
+            echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot.img | cut -d \' \' -f 1)" >> $GITHUB_ENV
         else
             echo "No Recovery file found!"
             cd Exit

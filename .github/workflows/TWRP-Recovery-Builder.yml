@@ -55,34 +55,36 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BUILD_LOG: build.log
     permissions:
       contents: write
     steps:
     - name: Check Out
       uses: actions/checkout@v4
       
-    - name: Display Inputs (Rainbow Style)
+    - name: Setup Build Environment
       run: |
-        echo -e "\e[31m::group::User Environment Variables\e[0m"
-        echo -e "\e[32mDisplaying variables/inputs.\e[0m"
-        echo -e "\e[33mManifest Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}\e[0m"
-        echo -e "\e[34mDevice Tree: ${{ github.event.inputs.DEVICE_TREE }}\e[0m"
-        echo -e "\e[35mDevice Branch: ${{ github.event.inputs.DEVICE_TREE_BRANCH }}\e[0m"
-        echo -e "\e[36mDevice Path: ${{ github.event.inputs.DEVICE_PATH }}\e[0m"
-        echo -e "\e[31mDevice Name: ${{ github.event.inputs.DEVICE_NAME }}\e[0m"
-        echo -e "\e[32mBuild Target: ${{ github.event.inputs.BUILD_TARGET }}image\e[0m"
-        echo -e "\e[33mInclude Recovery Installer: ${{ github.event.inputs.RECOVERY_INSTALLER }}\e[0m"
-        echo -e "\e[34m::endgroup::\e[0m"
+        echo "::group::📋 Workflow Input Parameters"
+        echo "Manifest Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}"
+        echo "Device Tree: ${{ github.event.inputs.DEVICE_TREE }}"
+        echo "Device Branch: ${{ github.event.inputs.DEVICE_TREE_BRANCH }}"
+        echo "Device Path: ${{ github.event.inputs.DEVICE_PATH }}"
+        echo "Device Name: ${{ github.event.inputs.DEVICE_NAME }}"
+        echo "Build Target: ${{ github.event.inputs.BUILD_TARGET }}"
+        echo "Include Recovery Installer: ${{ github.event.inputs.RECOVERY_INSTALLER }}"
+        echo "::endgroup::"
 
-    - name: Cleanup
+    - name: Cleanup Workspace
       uses: rokibhasansagar/slimhub_actions@main
       
-    - name: Free space before swap
+    - name: Free Disk Space
       run: |
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        echo "🔄 Cleaning up disk space..."
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
         sudo docker rmi $(sudo docker images -q) || true
+        echo "✅ Disk space cleaned"
 
-    - name: Set Swap Space (Safe Mode)
+    - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
         swap-size-gb: 24
@@ -97,32 +99,40 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-apt-
 
-    - name: Prepare the environment (Rainbow Style)
+    - name: Install Build Dependencies
       run: |
-        echo -e "\e[35mUpdating and installing dependencies...\e[0m"
-        sudo apt update
-        sudo apt -y upgrade
+        echo "::group::📦 Installing Dependencies"
+        sudo apt update -y
+        sudo apt upgrade -y
         sudo dpkg --add-architecture i386
-        sudo apt update
-        sudo apt -y install gperf gcc-multilib gcc-10-multilib g++-multilib g++-10-multilib ncurses-dev x11proto-core-dev lib32z-dev libgl1-mesa-dev libxml2-utils xsltproc bc ccache lib32readline-dev lib32z1-dev liblz4-tool libsdl1.2-dev libwxgtk3.2-dev lzop pngcrush schedtool squashfs-tools imagemagick libbz2-dev lzma ncftp qemu-user-static libstdc++-10-dev libtinfo6 libgflags-dev
-        sudo add-apt-repository universe
-        sudo apt -y install libncurses6 libncurses6:i386
-        echo -e "\e[32mDependencies installed successfully!\e[0m"
+        sudo apt update -y
+        sudo apt install -y \
+          gperf gcc-multilib gcc-10-multilib g++-multilib g++-10-multilib \
+          ncurses-dev x11proto-core-dev lib32z-dev libgl1-mesa-dev \
+          libxml2-utils xsltproc bc ccache lib32readline-dev lib32z1-dev \
+          liblz4-tool libsdl1.2-dev libwxgtk3.2-dev lzop pngcrush \
+          schedtool squashfs-tools imagemagick libbz2-dev lzma ncftp \
+          qemu-user-static libstdc++-10-dev libtinfo6 libgflags-dev
+        sudo add-apt-repository universe -y
+        sudo apt install -y libncurses6 libncurses6:i386
+        echo "::endgroup::"
        
-    - name: Install OpenJDK
+    - name: Setup Java Environment
       uses: actions/setup-java@v4
       with:
         distribution: zulu
         java-version: 8
 
-    - name: Install Git-Repo
+    - name: Install Repo Tool
       run: |
-        mkdir ~/bin
-        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        echo "📥 Installing repo tool..."
+        mkdir -p ~/bin
+        curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
         chmod a+x ~/bin/repo
         sudo ln -sf ~/bin/repo /usr/bin/repo
+        echo "✅ Repo tool installed"
 
-    - name: Check Manifest Branch
+    - name: Determine Manifest URL
       uses: haya14busa/action-cond@v1
       id: manifest
       with:
@@ -130,7 +140,7 @@ jobs:
         if_true: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
         if_false: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git
 
-    - name: Cache Repo Sync and Ccache
+    - name: Cache Build Environment
       uses: actions/cache@v4
       with:
         path: |
@@ -143,52 +153,58 @@ jobs:
 
     - name: Initialize Repo
       run: |
+        echo "::group::🔄 Initializing Repo"
         mkdir -p workspace
         cd workspace
         git config --global user.name "abrohim0786"
         git config --global user.email "callofduty.pubg786@gmail.com"
         repo init --depth=1 -u ${{ steps.manifest.outputs.value }} -b ${{ github.event.inputs.MANIFEST_BRANCH }}
+        echo "::endgroup::"
   
-    - name: Repo Sync (Rainbow Style)
+    - name: Sync Repositories
       run: |
-        echo -e "\e[36mSyncing repository...\e[0m"
+        echo "::group::🔄 Syncing Repositories"
         cd workspace
-        repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle
-        echo -e "\e[32mRepo sync completed!\e[0m"
+        repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
+        echo "::endgroup::"
 
     - name: Clone Device Tree
       run: |
-        echo -e "\e[35mCloning device tree...\e[0m"
+        echo "::group::🌳 Cloning Device Tree"
         cd workspace
         git clone ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
         cd ${{ github.event.inputs.DEVICE_PATH }}
         echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
-        echo -e "\e[32mDevice tree cloned successfully!\e[0m"
+        echo "::endgroup::"
 
-    - name: Check Build Makefile
+    - name: Identify Makefile
       run: |
+        echo "::group::🔍 Identifying Makefile"
         cd workspace
         if [ -f ${{ github.event.inputs.DEVICE_PATH }}/twrp_${{ github.event.inputs.DEVICE_NAME}}.mk ]; then
             echo "DEVICE_MAKEFILE=twrp_${{ github.event.inputs.DEVICE_NAME }}" >> $GITHUB_ENV
-            echo -e "\e[32mFound twrp makefile!\e[0m"
+            echo "Found twrp makefile!"
         elif [ -f ${{ github.event.inputs.DEVICE_PATH }}/omni_${{ github.event.inputs.DEVICE_NAME}}.mk ]; then
             echo "DEVICE_MAKEFILE=omni_${{ github.event.inputs.DEVICE_NAME }}" >> $GITHUB_ENV
-            echo -e "\e[32mFound omni makefile!\e[0m"
+            echo "Found omni makefile!"
         else
-            echo -e "\e[31mNo recovery makefile file found!\e[0m"
+            echo "No recovery makefile found!"
+            exit 1
         fi
-      continue-on-error: true
+        echo "::endgroup::"
       
-    - name: Install Python 2
+    - name: Install Python 2 (if needed)
       if: github.event.inputs.MANIFEST_BRANCH != 'twrp-11' && github.event.inputs.MANIFEST_BRANCH != 'twrp-12.1'  && github.event.inputs.MANIFEST_BRANCH != 'twrp-14'
       run: |
-        sudo apt -y install python2
-        cd /usr/bin
-        sudo ln -sf python2 python
+        echo "🐍 Installing Python 2"
+        sudo apt install -y python2
+        sudo ln -sf /usr/bin/python2 /usr/bin/python
+        echo "✅ Python 2 installed"
 
-    - name: Building Image (Rainbow Style)
+    - name: Build Recovery Image
+      timeout-minutes: 120
       run: |
-        echo -e "\e[35mStarting build process...\e[0m"
+        echo "::group::🏗️ Starting Build Process"
         cd workspace
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
@@ -196,11 +212,30 @@ jobs:
         export CCACHE_EXEC=/usr/bin/ccache
         ccache -M 50G
         ccache -z
-        lunch ${{ env.DEVICE_MAKEFILE }}-eng && make clean && make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
-        echo -e "\e[32mDone building your ${{ github.event.inputs.BUILD_TARGET }}.img!\e[0m"
+        
+        echo "🍽️ Running lunch command..."
+        lunch ${{ env.DEVICE_MAKEFILE }}-eng
+        
+        echo "🧹 Cleaning previous build..."
+        make clean
+        
+        echo "🔨 Building ${{ github.event.inputs.BUILD_TARGET }}image..."
+        make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all) 2>&1 | tee ${{ env.BUILD_LOG }}
+        
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
+          echo "❌ Build failed!"
+          echo "::group::📄 Build Log Tail"
+          tail -n 100 ${{ env.BUILD_LOG }}
+          echo "::endgroup::"
+          exit 1
+        fi
+        
+        echo "✅ Build completed successfully!"
+        echo "::endgroup::"
       
-    - name: Set Build Date
+    - name: Set Build Metadata
       run: |
+        echo "📅 Setting build metadata..."
         echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
         DEVICE_TREE_URL="${{ github.event.inputs.DEVICE_TREE }}"
         if [[ "${DEVICE_TREE_URL}" == *.git ]]; then
@@ -208,78 +243,82 @@ jobs:
         fi
         echo "DEVICE_TREE_URL=${DEVICE_TREE_URL}" >> $GITHUB_ENV
 
-    - name: Check if Recovery Exist (Rainbow Style)
+    - name: Locate Built Image
       run: |
-        cd workspace
-        if [ -f out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery.img ]; then
-            echo "RECOVERY_TYPE=recovery" >> $GITHUB_ENV
-            echo -e "\e[32mrecovery.img file found!\e[0m"
-            echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_TARGET }}.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
-        elif [ -f out/target/product/${{ github.event.inputs.DEVICE_NAME }}/boot.img ]; then
-            echo "RECOVERY_TYPE=boot" >> $GITHUB_ENV
-            echo -e "\e[32mboot.img file found!\e[0m"
-            echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_TARGET }}.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
-        elif [ -f out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot.img ]; then
-            echo "RECOVERY_TYPE=vendor_boot" >> $GITHUB_ENV
-            echo -e "\e[32mvendor_boot.img file found!\e[0m"
-            echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
-        else
-            echo -e "\e[31mNo Recovery file found!\e[0m"
-            cd Exit
-        fi
-
-    - name: Include Recovery Installer
-      run: |
-        if [ ${{ github.event.inputs.RECOVERY_INSTALLER }} = true ]; then
-          echo -e "\e[36mAdding recovery installer...\e[0m"
-          cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/
-          wget https://github.com/kinguser981/recovery-installer/releases/download/zip/recovery-installer.zip
-          zip -ur recovery-installer.zip ${{ env.RECOVERY_TYPE }}.img
-          echo -e "\e[32mRecovery installer added!\e[0m"
-        fi
-      continue-on-error: true
+        echo "::group::🔍 Locating Built Image"
+        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
         
-    - name: Upload to Release (Rainbow Style)
+        if [ -f recovery.img ]; then
+            echo "RECOVERY_TYPE=recovery" >> $GITHUB_ENV
+            echo "MD5_IMG=$(md5sum recovery.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
+            echo "Found recovery.img"
+        elif [ -f boot.img ]; then
+            echo "RECOVERY_TYPE=boot" >> $GITHUB_ENV
+            echo "MD5_IMG=$(md5sum boot.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
+            echo "Found boot.img"
+        elif [ -f vendor_boot.img ]; then
+            echo "RECOVERY_TYPE=vendor_boot" >> $GITHUB_ENV
+            echo "MD5_IMG=$(md5sum vendor_boot.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
+            echo "Found vendor_boot.img"
+        else
+            echo "❌ No recovery image found!"
+            echo "::group::📄 Build Log Tail"
+            tail -n 100 ${{ env.BUILD_LOG }}
+            echo "::endgroup::"
+            exit 1
+        fi
+        echo "::endgroup::"
+
+    - name: Create Recovery Installer
+      if: ${{ github.event.inputs.RECOVERY_INSTALLER }}
+      run: |
+        echo "::group::📦 Creating Recovery Installer"
+        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
+        wget -q https://github.com/kinguser981/recovery-installer/releases/download/zip/recovery-installer.zip
+        zip -ur recovery-installer.zip ${{ env.RECOVERY_TYPE }}.img
+        echo "✅ Recovery installer created"
+        echo "::endgroup::"
+
+    - name: Upload Build Artifacts
       uses: softprops/action-gh-release@v1
       with:
         files: |
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery-installer.zip
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_TYPE }}.img
-        name: Unofficial TWRP for ${{ github.event.inputs.DEVICE_NAME }} // ${{ env.BUILD_DATE }}
-        tag_name: ${{ github.run_id }}
+          ${{ env.BUILD_LOG }}
+        name: TWRP-${{ github.event.inputs.DEVICE_NAME }}-${{ env.BUILD_DATE }}
+        tag_name: build-${{ github.run_id }}
         body: |
-          \e[31mManifest: ${{ github.event.inputs.MANIFEST_BRANCH }}\e[0m
-          \e[32mTarget: ${{ github.event.inputs.BUILD_TARGET}}.img\e[0m
-          \e[33mDevice: [Device Tree/Branch](${{ env.DEVICE_TREE_URL }}/${{ github.event.inputs.DEVICE_TREE_BRANCH }})\e[0m
-          \e[34mCommit: Most recent [commit](${{ env.DEVICE_TREE_URL }}/commit/${{ env.COMMIT_ID }}) during building.\e[0m
-          \e[35mMD5 (img): ${{ env.MD5_IMG }}\e[0m
+          ### Build Details
+          - **Device**: ${{ github.event.inputs.DEVICE_NAME }}
+          - **Manifest**: ${{ github.event.inputs.MANIFEST_BRANCH }}
+          - **Build Target**: ${{ github.event.inputs.BUILD_TARGET }}
+          - **Device Tree**: [${{ github.event.inputs.DEVICE_TREE_BRANCH }}](${{ env.DEVICE_TREE_URL }}/tree/${{ github.event.inputs.DEVICE_TREE_BRANCH }})
+          - **Latest Commit**: [$(echo ${{ env.COMMIT_ID }} | cut -c1-7)](${{ env.DEVICE_TREE_URL }}/commit/${{ env.COMMIT_ID }})
+          - **MD5**: `${{ env.MD5_IMG }}`
+          - **Build Date**: ${{ env.BUILD_DATE }}
 
-    - name: Checking For Missing Dependencies
+    - name: Check Dependencies
+      if: ${{ github.event.inputs.LDCHECK }}
       run: |
-        if [ -n "${{ github.event.inputs.LDCHECK }}" ]; then
-          echo -e "\e[36mChecking for missing dependencies...\e[0m"
-          cd tools
-          mv -n libneeds ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
-          mv -n ldcheck ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
-          cd ../workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
-          python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
-          echo -e "\e[32mDependency check completed!\e[0m"
-        else
-          echo -e "\e[33mLDCHECK input not provided, skipping dependency check.\e[0m"
-        fi
-      continue-on-error: true
+        echo "::group::🔍 Checking Dependencies"
+        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
+        mkdir -p tools
+        cd tools
+        wget -q https://raw.githubusercontent.com/LineageOS/android_vendor_lineage/build/tools/libneeds
+        wget -q https://raw.githubusercontent.com/LineageOS/android_vendor_lineage/build/tools/ldcheck
+        chmod +x ldcheck
+        python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
+        echo "::endgroup::"
 
-    - name: Release ramdisk-recovery
-      uses: softprops/action-gh-release@4634c16e79c963813287e889244c50009e7f0981
+    - name: Upload Ramdisk Artifacts
+      if: always()
+      uses: softprops/action-gh-release@v1
       with:
         files: |
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/obj/PACKAGING/vendor_ramdisk_fragments_intermediates/recovery.*
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/ramdisk-recovery.*
-        name: Unofficial TWRP for ${{ github.event.inputs.DEVICE_NAME }} // ${{ env.BUILD_DATE }}
-        tag_name: ${{ github.run_id }}
+        tag_name: build-${{ github.run_id }}
         body: |
-          \e[31mManifest: ${{ github.event.inputs.MANIFEST_BRANCH }}\e[0m
-          \e[32mTarget: ${{ github.event.inputs.BUILD_TARGET}}.img\e[0m
-          \e[33mDevice: [Device Tree/Branch](${{ env.DEVICE_TREE_URL }}/${{ github.event.inputs.DEVICE_TREE_BRANCH }})\e[0m
-          \e[34mCommit: Most recent [commit](${{ env.DEVICE_TREE_URL }}/commit/${{ env.COMMIT_ID }}) during building.\e[0m
-          \e[35mMD5 (img): ${{ env.MD5_IMG }}\e[0m
+          Ramdisk artifacts for ${{ github.event.inputs.DEVICE_NAME }}
+          Build ID: ${{ github.run_id }}

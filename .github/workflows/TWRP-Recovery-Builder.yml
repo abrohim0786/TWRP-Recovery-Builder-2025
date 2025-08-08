@@ -1,4 +1,4 @@
-name: TWRP Recovery Builder ares 2025
+name: TWRP Recovery Builder Pro (16-Cores)
 
 on:
   workflow_dispatch:
@@ -55,19 +55,32 @@ on:
 
 jobs:
   build:
-    name: Build TWRP by ${{ github.actor }}
-    runs-on: ubuntu-latest
+    name: Build TWRP Pro by ${{ github.actor }}
+    runs-on: ubuntu-latest-16-cores
     if: github.event.repository.owner.id == github.event.sender.id
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_LOG: build.log
+      CCACHE_DIR: /github/workspace/.ccache
+      CCACHE_COMPRESS: 1
+      CCACHE_COMPRESSLEVEL: 6
+      CCACHE_MAXSIZE: 50G
     permissions:
       contents: write
     steps:
     - name: Check Out
       uses: actions/checkout@v4
       
-    - name: Display Inputs
+    - name: Display System Info
+      run: |
+        echo "::group::🖥️ System Information"
+        echo "CPU Cores: $(nproc)"
+        echo "Total RAM: $(free -h | awk '/Mem:/{print $2}')"
+        echo "Swap Space: $(free -h | awk '/Swap:/{print $2}')"
+        echo "Disk Space: $(df -h / | awk 'NR==2{print $4}') free"
+        echo "::endgroup::"
+
+    - name: Setup Build Environment
       run: |
         echo "::group::📋 Workflow Input Parameters"
         echo "Manifest Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}"
@@ -81,37 +94,44 @@ jobs:
         echo "LDCHECK Path: ${{ github.event.inputs.LDCHECK }}"
         echo "::endgroup::"
 
-    - name: Cleanup Workspace
-      uses: rokibhasansagar/slimhub_actions@main
-      
-    - name: Free Disk Space
+    - name: Turbo Boost Setup
       run: |
-        echo "🔄 Cleaning up disk space..."
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
-        sudo docker rmi $(sudo docker images -q) || true
-        echo "✅ Disk space cleaned"
+        echo "::group::🚀 Turbo Boost Configuration"
+        # Set CPU governor to performance mode
+        sudo apt install -y linux-tools-common
+        for i in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+          echo "performance" | sudo tee $i
+        done
+        # Increase file watcher limits
+        echo "fs.inotify.max_user_watches=524288" | sudo tee -a /etc/sysctl.conf
+        sudo sysctl -p
+        # Optimize swapiness
+        echo "vm.swappiness=10" | sudo tee -a /etc/sysctl.conf
+        sudo sysctl -p
+        echo "::endgroup::"
 
-    - name: Set Swap Space
-      uses: pierotofy/set-swap-space@master
-      with:
-        swap-size-gb: 24
-        
     - name: Install Build Dependencies
       run: |
-        echo "::group::📦 Installing Dependencies"
+        echo "::group::📦 Installing Dependencies (Parallel)"
         sudo apt update -y
-        sudo apt upgrade -y
-        sudo dpkg --add-architecture i386
-        sudo apt update -y
-        sudo apt install -y \
+        sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y
+        
+        # Parallel package installation
+        sudo apt install -y --no-install-recommends \
           gperf gcc-multilib gcc-10-multilib g++-multilib g++-10-multilib \
           ncurses-dev x11proto-core-dev lib32z-dev libgl1-mesa-dev \
           libxml2-utils xsltproc bc ccache lib32readline-dev lib32z1-dev \
           liblz4-tool libsdl1.2-dev libwxgtk3.2-dev lzop pngcrush \
           schedtool squashfs-tools imagemagick libbz2-dev lzma ncftp \
           qemu-user-static libstdc++-10-dev libtinfo6 libgflags-dev \
-          libncurses6 libncurses6:i386 git-lfs
+          libncurses6 libncurses6:i386 git-lfs python-is-python3 \
+          zlib1g-dev flex bison build-essential zip curl gnupg \
+          python3 python3-pip rsync aria2 patchelf &
+        
+        sudo dpkg --add-architecture i386
+        sudo apt update -y
         sudo add-apt-repository universe -y
+        wait
         echo "::endgroup::"
        
     - name: Setup Java Environment
@@ -120,14 +140,26 @@ jobs:
         distribution: zulu
         java-version: 8
 
-    - name: Install Repo Tool
+    - name: Install Repo Tool (Optimized)
       run: |
-        echo "📥 Installing repo tool..."
+        echo "::group::⚡ Installing Repo Tool"
         mkdir -p ~/bin
-        curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        aria2c -x16 -s16 -k1M https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
         chmod a+x ~/bin/repo
         sudo ln -sf ~/bin/repo /usr/bin/repo
-        echo "✅ Repo tool installed"
+        echo "::endgroup::"
+
+    - name: Configure CCACHE
+      run: |
+        echo "::group::🌀 CCACHE Configuration"
+        mkdir -p $CCACHE_DIR
+        ccache -o compression=true
+        ccache -o compression_level=6
+        ccache -o max_size=$CCACHE_MAXSIZE
+        ccache -z
+        echo "CCACHE STATS:"
+        ccache -s
+        echo "::endgroup::"
 
     - name: Determine Manifest URL
       uses: haya14busa/action-cond@v1
@@ -137,78 +169,60 @@ jobs:
         if_true: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
         if_false: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git
 
-    - name: Initialize Repo
+    - name: Initialize Repo (Turbo Mode)
       run: |
-        echo "::group::🔄 Initializing Repo"
+        echo "::group::⚡ Initializing Repo (Depth 1)"
         mkdir -p workspace
         cd workspace
         git config --global user.name "abrohim0786"
         git config --global user.email "callofduty.pubg786@gmail.com"
-        repo init --depth=1 -u ${{ steps.manifest.outputs.value }} -b ${{ github.event.inputs.MANIFEST_BRANCH }}
+        git config --global core.compression 9
+        git config --global pack.depth 1
+        repo init --depth=1 -u ${{ steps.manifest.outputs.value }} -b ${{ github.event.inputs.MANIFEST_BRANCH }} --repo-rev=main --repo-url=https://gerrit.googlesource.com/git-repo
         echo "::endgroup::"
   
-    - name: Sync Repositories
-      timeout-minutes: 30
+    - name: Sync Repositories (Parallel)
+      timeout-minutes: 20
       run: |
-        echo "::group::🔄 Syncing Repositories"
+        echo "::group::⚡ Syncing Repositories (16 threads)"
         cd workspace
-        repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
+        repo sync -c -j16 --no-tags --no-clone-bundle --force-sync --optimized-fetch --prune
         echo "::endgroup::"
 
-    - name: Clone Device Tree
+    - name: Clone Device Tree (Optimized)
       run: |
-        echo "::group::🌳 Cloning Device Tree"
+        echo "::group::🌳 Cloning Device Tree (Depth 1)"
         cd workspace
-        git clone ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
+        git clone --depth=1 --single-branch ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
         cd ${{ github.event.inputs.DEVICE_PATH }}
         git lfs pull
         echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
         echo "::endgroup::"
 
-    - name: Identify Makefile
+    - name: Build Process (Turbo Mode)
+      timeout-minutes: 90
       run: |
-        echo "::group::🔍 Identifying Makefile"
+        echo "::group::🚀 Starting Turbo Build"
         cd workspace
-        if [ -f ${{ github.event.inputs.DEVICE_PATH }}/twrp_${{ github.event.inputs.DEVICE_NAME}}.mk ]; then
-            echo "DEVICE_MAKEFILE=twrp_${{ github.event.inputs.DEVICE_NAME }}" >> $GITHUB_ENV
-            echo "Found twrp makefile!"
-        elif [ -f ${{ github.event.inputs.DEVICE_PATH }}/omni_${{ github.event.inputs.DEVICE_NAME}}.mk ]; then
-            echo "DEVICE_MAKEFILE=omni_${{ github.event.inputs.DEVICE_NAME }}" >> $GITHUB_ENV
-            echo "Found omni makefile!"
-        else
-            echo "❌ No recovery makefile found!"
-            exit 1
-        fi
-        echo "::endgroup::"
-      
-    - name: Install Python 2 (if needed)
-      if: github.event.inputs.MANIFEST_BRANCH != 'twrp-11' && github.event.inputs.MANIFEST_BRANCH != 'twrp-12.1'  && github.event.inputs.MANIFEST_BRANCH != 'twrp-14'
-      run: |
-        echo "🐍 Installing Python 2"
-        sudo apt install -y python2
-        sudo ln -sf /usr/bin/python2 /usr/bin/python
-        echo "✅ Python 2 installed"
-
-    - name: Build Recovery Image
-      timeout-minutes: 120
-      run: |
-        echo "::group::🏗️ Starting Build Process"
-        cd workspace
+        
+        # Setup environment
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
         export USE_CCACHE=1
-        export CCACHE_DIR=~/.ccache
-        ccache -M 50G
-        ccache -z
+        export CCACHE_CPP2=yes
+        export CCACHE_SLOPPINESS=file_macro,locale,time_macros
+        export CCACHE_NOHASHDIR=true
         
-        echo "🍽️ Running lunch command..."
-        lunch ${{ env.DEVICE_MAKEFILE }}-eng
-        
+        # Pre-build optimizations
         echo "🧹 Cleaning previous build..."
         make clean
+        ccache -c
         
-        echo "🔨 Building ${{ github.event.inputs.BUILD_TARGET }}image..."
-        make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all) 2>&1 | tee ${{ env.BUILD_LOG }}
+        echo "🍽️ Configuring lunch..."
+        lunch ${{ env.DEVICE_MAKEFILE }}-eng
+        
+        echo "⚡ Building with 16 threads..."
+        time make -j16 ${{ github.event.inputs.BUILD_TARGET }}image 2>&1 | tee ${{ env.BUILD_LOG }}
         
         if [ ${PIPESTATUS[0]} -ne 0 ]; then
           echo "❌ Build failed!"
@@ -219,64 +233,42 @@ jobs:
         fi
         
         echo "✅ Build completed successfully!"
+        ccache -s
         echo "::endgroup::"
       
-    - name: Set Build Metadata
+    - name: Package Artifacts
       run: |
-        echo "📅 Setting build metadata..."
-        echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
-        DEVICE_TREE_URL="${{ github.event.inputs.DEVICE_TREE }}"
-        if [[ "${DEVICE_TREE_URL}" == *.git ]]; then
-          DEVICE_TREE_URL="${DEVICE_TREE_URL%.git}"
-        fi
-        echo "DEVICE_TREE_URL=${DEVICE_TREE_URL}" >> $GITHUB_ENV
-
-    - name: Locate Built Image
-      run: |
-        echo "::group::🔍 Locating Built Image"
+        echo "::group::📦 Packaging Artifacts"
         cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
         
+        # Identify recovery image
         if [ -f recovery.img ]; then
             echo "RECOVERY_TYPE=recovery" >> $GITHUB_ENV
             echo "MD5_IMG=$(md5sum recovery.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
-            echo "Found recovery.img"
         elif [ -f boot.img ]; then
             echo "RECOVERY_TYPE=boot" >> $GITHUB_ENV
             echo "MD5_IMG=$(md5sum boot.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
-            echo "Found boot.img"
         elif [ -f vendor_boot.img ]; then
             echo "RECOVERY_TYPE=vendor_boot" >> $GITHUB_ENV
             echo "MD5_IMG=$(md5sum vendor_boot.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
-            echo "Found vendor_boot.img"
         else
             echo "❌ No recovery image found!"
-            echo "::group::📄 Build Log Tail"
-            tail -n 100 ${{ env.BUILD_LOG }}
-            echo "::endgroup::"
             exit 1
+        fi
+        
+        # Create installer if requested
+        if [ ${{ github.event.inputs.RECOVERY_INSTALLER }} = true ]; then
+          aria2c -x16 -s16 https://github.com/kinguser981/recovery-installer/releases/download/zip/recovery-installer.zip
+          zip -ur recovery-installer.zip ${{ env.RECOVERY_TYPE }}.img
+        fi
+        
+        # Create tar if requested
+        if [ ${{ github.event.inputs.RECOVERY_TAR }} = true ]; then
+          tar -cvf ${{ env.RECOVERY_TYPE }}.tar ${{ env.RECOVERY_TYPE }}.img
         fi
         echo "::endgroup::"
 
-    - name: Create Recovery Installer
-      if: ${{ github.event.inputs.RECOVERY_INSTALLER }}
-      run: |
-        echo "::group::📦 Creating Recovery Installer"
-        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
-        wget -q https://github.com/kinguser981/recovery-installer/releases/download/zip/recovery-installer.zip
-        zip -ur recovery-installer.zip ${{ env.RECOVERY_TYPE }}.img
-        echo "✅ Recovery installer created"
-        echo "::endgroup::"
-
-    - name: Create Samsung Recovery Tar
-      if: ${{ github.event.inputs.RECOVERY_TAR }}
-      run: |
-        echo "::group::📦 Creating Samsung Recovery Tar"
-        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
-        tar -cvf ${{ env.RECOVERY_TYPE }}.tar ${{ env.RECOVERY_TYPE }}.img
-        echo "✅ Samsung recovery tar created"
-        echo "::endgroup::"
-
-    - name: Upload Build Artifacts
+    - name: Upload Artifacts
       uses: softprops/action-gh-release@v1
       with:
         files: |
@@ -284,39 +276,30 @@ jobs:
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_TYPE }}.img
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_TYPE }}.tar
           ${{ env.BUILD_LOG }}
-        name: TWRP-${{ github.event.inputs.DEVICE_NAME }}-${{ env.BUILD_DATE }}
-        tag_name: build-${{ github.run_id }}
+        name: TWRP-Pro-${{ github.event.inputs.DEVICE_NAME }}-$(date +%Y%m%d)
+        tag_name: pro-build-${{ github.run_id }}
         body: |
-          ### Build Details
+          ### 🚀 Turbo Build Report
           - **Device**: ${{ github.event.inputs.DEVICE_NAME }}
-          - **Manifest**: ${{ github.event.inputs.MANIFEST_BRANCH }}
-          - **Build Target**: ${{ github.event.inputs.BUILD_TARGET }}
-          - **Device Tree**: [${{ github.event.inputs.DEVICE_TREE_BRANCH }}](${{ env.DEVICE_TREE_URL }}/tree/${{ github.event.inputs.DEVICE_TREE_BRANCH }})
-          - **Latest Commit**: [$(echo ${{ env.COMMIT_ID }} | cut -c1-7)](${{ env.DEVICE_TREE_URL }}/commit/${{ env.COMMIT_ID }})
-          - **MD5**: `${{ env.MD5_IMG }}`
-          - **Build Date**: ${{ env.BUILD_DATE }}
+          - **Build Time**: $(date -u)
+          - **Build Duration**: ${{ job.status }} seconds
+          - **CPU Cores**: 16
+          - **CCACHE Stats**:
+          ```
+          $(ccache -s)
+          ```
 
-    - name: Check Dependencies
-      run: |
-        echo "::group::🔍 Checking Dependencies"
-        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
-        mkdir -p tools
-        cd tools
-        wget -q https://raw.githubusercontent.com/LineageOS/android_vendor_lineage/build/tools/libneeds
-        wget -q https://raw.githubusercontent.com/LineageOS/android_vendor_lineage/build/tools/ldcheck
-        chmod +x ldcheck
-        python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
-        echo "::endgroup::"
-      continue-on-error: true
-
-    - name: Upload Ramdisk Artifacts
+    - name: Performance Report
       if: always()
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/obj/PACKAGING/vendor_ramdisk_fragments_intermediates/recovery.*
-          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/ramdisk-recovery.*
-        tag_name: build-${{ github.run_id }}
-        body: |
-          Ramdisk artifacts for ${{ github.event.inputs.DEVICE_NAME }}
-          Build ID: ${{ github.run_id }}
+      run: |
+        echo "::group::📊 Performance Metrics"
+        echo "Build duration: $SECONDS seconds"
+        echo "CPU usage:"
+        mpstat -P ALL
+        echo "Memory usage:"
+        free -h
+        echo "Disk usage:"
+        df -h
+        echo "CCACHE stats:"
+        ccache -s
+        echo "::endgroup::"

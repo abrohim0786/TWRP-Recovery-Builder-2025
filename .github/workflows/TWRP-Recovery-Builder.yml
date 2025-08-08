@@ -1,4 +1,4 @@
-name: TWRP Recovery Builder ares 2025 (16-Cores)
+name: TWRP Recovery Builder ares 2025
 
 on:
   workflow_dispatch:
@@ -39,9 +39,14 @@ on:
         - recovery
         - vendorboot
       LDCHECK:
-        description: 'Path of blobs to check (optional, leave empty if not needed)' 
+        description: 'Path of blobs to check' 
+        required: true
+        default: 'system/bin/qseecomd'
+      RECOVERY_TAR:
+        description: 'Release Recovery.tar For Samsung devices'
         required: false
-        default: ''
+        default: false
+        type: boolean
       RECOVERY_INSTALLER:
         description: 'Include recovery installer.zip'
         type: boolean
@@ -51,7 +56,7 @@ on:
 jobs:
   build:
     name: Build TWRP by ${{ github.actor }}
-    runs-on: ubuntu-latest-16-cores
+    runs-on: ubuntu-latest
     if: github.event.repository.owner.id == github.event.sender.id
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -62,7 +67,7 @@ jobs:
     - name: Check Out
       uses: actions/checkout@v4
       
-    - name: Setup Build Environment
+    - name: Display Inputs
       run: |
         echo "::group::📋 Workflow Input Parameters"
         echo "Manifest Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}"
@@ -72,6 +77,8 @@ jobs:
         echo "Device Name: ${{ github.event.inputs.DEVICE_NAME }}"
         echo "Build Target: ${{ github.event.inputs.BUILD_TARGET }}"
         echo "Include Recovery Installer: ${{ github.event.inputs.RECOVERY_INSTALLER }}"
+        echo "Release recovery.tar For Samsung: ${{ github.event.inputs.RECOVERY_TAR }}"
+        echo "LDCHECK Path: ${{ github.event.inputs.LDCHECK }}"
         echo "::endgroup::"
 
     - name: Cleanup Workspace
@@ -89,16 +96,6 @@ jobs:
       with:
         swap-size-gb: 24
         
-    - name: Cache APT packages
-      uses: actions/cache@v4
-      with:
-        path: |
-          /var/lib/apt/lists
-          /var/cache/apt/archives
-        key: ${{ runner.os }}-apt-${{ hashFiles('**/Dockerfile', '.github/workflows/*.yml') }}
-        restore-keys: |
-          ${{ runner.os }}-apt-
-
     - name: Install Build Dependencies
       run: |
         echo "::group::📦 Installing Dependencies"
@@ -112,9 +109,9 @@ jobs:
           libxml2-utils xsltproc bc ccache lib32readline-dev lib32z1-dev \
           liblz4-tool libsdl1.2-dev libwxgtk3.2-dev lzop pngcrush \
           schedtool squashfs-tools imagemagick libbz2-dev lzma ncftp \
-          qemu-user-static libstdc++-10-dev libtinfo6 libgflags-dev
+          qemu-user-static libstdc++-10-dev libtinfo6 libgflags-dev \
+          libncurses6 libncurses6:i386 git-lfs
         sudo add-apt-repository universe -y
-        sudo apt install -y libncurses6 libncurses6:i386
         echo "::endgroup::"
        
     - name: Setup Java Environment
@@ -140,17 +137,6 @@ jobs:
         if_true: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
         if_false: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git
 
-    - name: Cache Build Environment
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.ccache
-          workspace
-        key: ${{ runner.os }}-build-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_NAME }}-${{ hashFiles('workspace/.repo/manifests/*.xml') }}
-        restore-keys: |
-          ${{ runner.os }}-build-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_NAME }}-
-          ${{ runner.os }}-build-
-
     - name: Initialize Repo
       run: |
         echo "::group::🔄 Initializing Repo"
@@ -162,6 +148,7 @@ jobs:
         echo "::endgroup::"
   
     - name: Sync Repositories
+      timeout-minutes: 30
       run: |
         echo "::group::🔄 Syncing Repositories"
         cd workspace
@@ -174,6 +161,7 @@ jobs:
         cd workspace
         git clone ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
         cd ${{ github.event.inputs.DEVICE_PATH }}
+        git lfs pull
         echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
         echo "::endgroup::"
 
@@ -188,7 +176,7 @@ jobs:
             echo "DEVICE_MAKEFILE=omni_${{ github.event.inputs.DEVICE_NAME }}" >> $GITHUB_ENV
             echo "Found omni makefile!"
         else
-            echo "No recovery makefile found!"
+            echo "❌ No recovery makefile found!"
             exit 1
         fi
         echo "::endgroup::"
@@ -208,8 +196,8 @@ jobs:
         cd workspace
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
+        export USE_CCACHE=1
         export CCACHE_DIR=~/.ccache
-        export CCACHE_EXEC=/usr/bin/ccache
         ccache -M 50G
         ccache -z
         
@@ -279,12 +267,22 @@ jobs:
         echo "✅ Recovery installer created"
         echo "::endgroup::"
 
+    - name: Create Samsung Recovery Tar
+      if: ${{ github.event.inputs.RECOVERY_TAR }}
+      run: |
+        echo "::group::📦 Creating Samsung Recovery Tar"
+        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
+        tar -cvf ${{ env.RECOVERY_TYPE }}.tar ${{ env.RECOVERY_TYPE }}.img
+        echo "✅ Samsung recovery tar created"
+        echo "::endgroup::"
+
     - name: Upload Build Artifacts
       uses: softprops/action-gh-release@v1
       with:
         files: |
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery-installer.zip
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_TYPE }}.img
+          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_TYPE }}.tar
           ${{ env.BUILD_LOG }}
         name: TWRP-${{ github.event.inputs.DEVICE_NAME }}-${{ env.BUILD_DATE }}
         tag_name: build-${{ github.run_id }}
@@ -299,7 +297,6 @@ jobs:
           - **Build Date**: ${{ env.BUILD_DATE }}
 
     - name: Check Dependencies
-      if: ${{ github.event.inputs.LDCHECK }}
       run: |
         echo "::group::🔍 Checking Dependencies"
         cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
@@ -310,6 +307,7 @@ jobs:
         chmod +x ldcheck
         python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
         echo "::endgroup::"
+      continue-on-error: true
 
     - name: Upload Ramdisk Artifacts
       if: always()

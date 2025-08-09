@@ -10,11 +10,7 @@ name: TWRP Recovery Builder (Upgraded v2)
 
 on:
   workflow_dispatch:
-    inputs:
-      MANIFEST_URL:
-        description: 'Custom Minimal-Manifest URL (optional)'
-        required: true
-        default: 'https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git'
+    inputs:      
       MANIFEST_BRANCH:
         description: 'TWRP Minimal-Manifest Branch'
         required: true

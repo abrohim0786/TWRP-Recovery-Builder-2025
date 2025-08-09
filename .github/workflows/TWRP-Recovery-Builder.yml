@@ -68,9 +68,9 @@ jobs:
     - name: Check Out
       uses: actions/checkout@v4
       
-    - name: Display Inputs
+    - name: Display Build Info
       run: |
-        echo "::group::Build Configuration"
+        echo "::group::📱 TWRP Build Configuration"
         echo "Builder: ${{ env.BUILD_AUTHOR }}"
         echo "Manifest Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}"
         echo "Device Tree: ${{ github.event.inputs.DEVICE_TREE }}"
@@ -80,43 +80,48 @@ jobs:
         echo "Build Target: ${{ github.event.inputs.BUILD_TARGET }}"
         echo "::endgroup::"
 
-    - name: Cleanup
+    - name: Cleanup Workspace
       uses: rokibhasansagar/slimhub_actions@main
       
-    - name: Free space before swap
+    - name: Free Disk Space
       run: |
         sudo rm -rf "$AGENT_TOOLSDIRECTORY"
         sudo docker rmi $(sudo docker images -q) || true
 
-    - name: Set Swap Space (Safe Mode)
-      uses: pierotofy/set-swarm-space@master
+    # FIXED: Corrected action name from set-swarm-space to set-swap-space
+    - name: Set Swap Space
+      uses: pierotofy/set-swap-space@master
       with:
         swap-size-gb: 24
         
-    - name: Prepare the environment
+    - name: Install Build Dependencies
       run: |
         sudo apt update
         sudo apt -y upgrade
         sudo dpkg --add-architecture i386
         sudo apt update
-        sudo apt -y install gperf gcc-multilib gcc-10-multilib g++-multilib g++-10-multilib ncurses-dev x11proto-core-dev lib32z-dev libgl1-mesa-dev libxml2-utils xsltproc bc ccache lib32readline-dev lib32z1-dev liblz4-tool libsdl1.2-dev libwxgtk3.2-dev lzop pngcrush schedtool squashfs-tools imagemagick libbz2-dev lzma ncftp qemu-user-static libstdc++-10-dev libtinfo6 libgflags-dev
+        sudo apt -y install gperf gcc-multilib gcc-10-multilib g++-multilib g++-10-multilib \
+          ncurses-dev x11proto-core-dev lib32z-dev libgl1-mesa-dev libxml2-utils xsltproc bc \
+          ccache lib32readline-dev lib32z1-dev liblz4-tool libsdl1.2-dev libwxgtk3.2-dev lzop \
+          pngcrush schedtool squashfs-tools imagemagick libbz2-dev lzma ncftp qemu-user-static \
+          libstdc++-10-dev libtinfo6 libgflags-dev
         sudo add-apt-repository universe
         sudo apt -y install libncurses6 libncurses6:i386
         
-    - name: Install OpenJDK
+    - name: Install Java JDK
       uses: actions/setup-java@v4
       with:
         distribution: zulu
         java-version: 8
 
-    - name: Install Git-Repo
+    - name: Install Repo Tool
       run: |
         mkdir ~/bin
-        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
         chmod a+x ~/bin/repo
         sudo ln -sf ~/bin/repo /usr/bin/repo
 
-    - name: Check Manifest Branch
+    - name: Select Manifest Source
       uses: haya14busa/action-cond@v1
       id: manifest
       with:
@@ -132,7 +137,7 @@ jobs:
         git config --global user.email "callofduty.pubg786@gmail.com"
         repo init --depth=1 -u ${{ steps.manifest.outputs.value }} -b ${{ github.event.inputs.MANIFEST_BRANCH }}
   
-    - name: Repo Sync
+    - name: Sync Source Code
       run: |
         cd workspace
         repo sync -j$(nproc --all) --force-sync
@@ -144,7 +149,7 @@ jobs:
         cd ${{ github.event.inputs.DEVICE_PATH }}
         echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
 
-    - name: Check Build Makefile
+    - name: Find Makefile
       run: |
         cd workspace
         if [ -f ${{ github.event.inputs.DEVICE_PATH }}/twrp_${{ github.event.inputs.DEVICE_NAME}}.mk ]; then
@@ -152,24 +157,25 @@ jobs:
         elif [ -f ${{ github.event.inputs.DEVICE_PATH }}/omni_${{ github.event.inputs.DEVICE_NAME}}.mk ]; then
             echo "DEVICE_MAKEFILE=omni_${{ github.event.inputs.DEVICE_NAME }}" >> $GITHUB_ENV
         else
-            echo "No recovery makefile found!"
+            echo "::warning::No recovery makefile found!"
         fi
       continue-on-error: true
       
-    - name: Install Python 2
+    - name: Install Python 2 (Legacy Branches)
       if: github.event.inputs.MANIFEST_BRANCH != 'twrp-11' && github.event.inputs.MANIFEST_BRANCH != 'twrp-12.1'  && github.event.inputs.MANIFEST_BRANCH != 'twrp-14'
       run: |
         sudo apt -y install python2
-        cd /usr/bin
-        sudo ln -sf python2 python
+        sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: Building Image 
+    - name: Build Recovery Image 
       run: |
         cd workspace
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        lunch ${{ env.DEVICE_MAKEFILE }}-eng && make clean && make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
-        echo "Done building your ${{ github.event.inputs.BUILD_TARGET }}.img"
+        lunch ${{ env.DEVICE_MAKEFILE }}-eng
+        make clean
+        make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
+        echo "✅ Build completed: ${{ github.event.inputs.BUILD_TARGET }}.img"
       
     - name: Set Build Metadata
       run: |
@@ -181,7 +187,7 @@ jobs:
         fi
         echo "DEVICE_TREE_URL=${DEVICE_TREE_URL}" >> $GITHUB_ENV
 
-    - name: Check Build Output
+    - name: Locate Output Files
       run: |
         cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
         if [ -f recovery.img ]; then
@@ -197,11 +203,11 @@ jobs:
             echo "RECOVERY_FILE=vendor_boot.img" >> $GITHUB_ENV
             echo "MD5_IMG=$(md5sum vendor_boot.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
         else
-            echo "No recovery file found!"
+            echo "::error::No recovery file found in output directory!"
             exit 1
         fi
 
-    - name: Include Recovery Installer
+    - name: Add Recovery Installer
       if: ${{ github.event.inputs.RECOVERY_INSTALLER }}
       run: |
         cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
@@ -210,7 +216,7 @@ jobs:
         echo "INSTALLER_EXISTS=true" >> $GITHUB_ENV
       continue-on-error: true
         
-    - name: Create Recovery Tar
+    - name: Create Samsung Recovery Tar
       if: ${{ github.event.inputs.RECOVERY_TAR }}
       run: |
         cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
@@ -229,39 +235,37 @@ jobs:
         name: "TWRP ${{ env.RECOVERY_TYPE }} for ${{ github.event.inputs.DEVICE_NAME }} (${{ env.BUILD_DATE }})"
         tag_name: "${{ github.event.inputs.DEVICE_NAME }}-${{ env.BUILD_DATE }}-${{ env.BUILD_TIME }}"
         body: |
-          ### TWRP Recovery by ${{ env.BUILD_AUTHOR }}
-          **Device:** ${{ github.event.inputs.DEVICE_NAME }}
-          **Build Type:** ${{ env.RECOVERY_TYPE }}
-          **Build Date:** ${{ env.BUILD_DATE }} ${{ env.BUILD_TIME }}
+          ### 🛠 TWRP Recovery by ${{ env.BUILD_AUTHOR }}
+          **📱 Device:** ${{ github.event.inputs.DEVICE_NAME }}  
+          **🔧 Build Type:** ${{ env.RECOVERY_TYPE }}  
+          **📅 Build Date:** ${{ env.BUILD_DATE }} ${{ env.BUILD_TIME }}  
           
-          **Source Information:**
-          - Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}
-          - Device Tree: [${{ github.event.inputs.DEVICE_TREE_BRANCH }}](${{ env.DEVICE_TREE_URL }}/tree/${{ github.event.inputs.DEVICE_TREE_BRANCH }})
-          - Commit: [${{ env.COMMIT_ID }}](${{ env.DEVICE_TREE_URL }}/commit/${{ env.COMMIT_ID }})
+          **🔗 Source Information:**  
+          - Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}  
+          - Device Tree: [${{ github.event.inputs.DEVICE_TREE_BRANCH }}](${{ env.DEVICE_TREE_URL }}/tree/${{ github.event.inputs.DEVICE_TREE_BRANCH }})  
+          - Commit: [${{ env.COMMIT_ID }}](${{ env.DEVICE_TREE_URL }}/commit/${{ env.COMMIT_ID }})  
           
-          **MD5:** `${{ env.MD5_IMG }}`
+          **🔒 MD5:** `${{ env.MD5_IMG }}`
 
     # Telegram Integration
-    - name: Prepare Telegram Notification
-      run: |
-        echo "BUILD_LOG_URL=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_ENV
-        echo "RELEASE_URL=${{ steps.create_release.outputs.html_url }}" >> $GITHUB_ENV
-        echo "ARTIFACTS_DIR=workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}" >> $GITHUB_ENV
-
     - name: Prepare Telegram Assets
       run: |
-        cd ${{ env.ARTIFACTS_DIR }}
+        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
         mkdir -p telegram_assets
+        
         # Copy only existing files
         [ -f ${{ env.RECOVERY_FILE }} ] && cp ${{ env.RECOVERY_FILE }} telegram_assets/
         [ -f recovery-installer.zip ] && cp recovery-installer.zip telegram_assets/
         [ ${{ github.event.inputs.RECOVERY_TAR }} = true ] && [ -f ${{ env.RECOVERY_TYPE }}.tar ] && cp ${{ env.RECOVERY_TYPE }}.tar telegram_assets/
+        
         echo "ARTIFACTS_COUNT=$(ls -1 telegram_assets 2>/dev/null | wc -l)" >> $GITHUB_ENV
+        echo "RELEASE_URL=${{ steps.create_release.outputs.html_url }}" >> $GITHUB_ENV
+        echo "BUILD_LOG_URL=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_ENV
 
     - name: Compress Assets for Telegram
       if: ${{ env.ARTIFACTS_COUNT > 0 }}
       run: |
-        cd ${{ env.ARTIFACTS_DIR }}
+        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
         tar -zcvf telegram_assets.tar.gz telegram_assets/
         echo "TELEGRAM_ASSETS=$(pwd)/telegram_assets.tar.gz" >> $GITHUB_ENV
 
@@ -273,16 +277,15 @@ jobs:
         token: ${{ secrets.TELEGRAM_TOKEN }}
         message: |
           <b>✅ TWRP Build Completed Successfully!</b>
-          <b>Builder:</b> <code>${{ env.BUILD_AUTHOR }}</code>
-          <b>Device:</b> <code>${{ github.event.inputs.DEVICE_NAME }}</code>
-          <b>Type:</b> <code>${{ env.RECOVERY_TYPE }}</code>
-          <b>Date:</b> <code>${{ env.BUILD_DATE }} ${{ env.BUILD_TIME }}</code>
+          <b>👤 Builder:</b> <code>${{ env.BUILD_AUTHOR }}</code>
+          <b>📱 Device:</b> <code>${{ github.event.inputs.DEVICE_NAME }}</code>
+          <b>📦 Type:</b> <code>${{ env.RECOVERY_TYPE }}</code>
+          <b>📅 Date:</b> <code>${{ env.BUILD_DATE }} ${{ env.BUILD_TIME }}</code>
           
-          <b>📦 Artifacts:</b> <code>${{ env.ARTIFACTS_COUNT }}</code> files
           <b>🔗 GitHub Release:</b> <a href="${{ env.RELEASE_URL }}">Download</a>
           <b>📝 Build Logs:</b> <a href="${{ env.BUILD_LOG_URL }}">View</a>
           
-          <b>MD5:</b> <code>${{ env.MD5_IMG }}</code>
+          <b>🔒 MD5:</b> <code>${{ env.MD5_IMG }}</code>
         format: html
 
     - name: Upload Assets to Telegram
@@ -295,10 +298,7 @@ jobs:
         message: |
           <b>📦 TWRP Build Artifacts</b>
           <b>Device:</b> <code>${{ github.event.inputs.DEVICE_NAME }}</code>
-          <b>Contains:</b>
-          - ${{ env.RECOVERY_FILE }}
-          - recovery-installer.zip
-          - ${{ env.RECOVERY_TYPE }}.tar (if created)
+          <b>Contains:</b> ${{ env.ARTIFACTS_COUNT }} files
         format: html
 
     - name: Send Telegram Failure Notification
@@ -309,20 +309,19 @@ jobs:
         token: ${{ secrets.TELEGRAM_TOKEN }}
         message: |
           <b>❌ TWRP Build Failed!</b>
-          <b>Builder:</b> <code>${{ env.BUILD_AUTHOR }}</code>
-          <b>Device:</b> <code>${{ github.event.inputs.DEVICE_NAME }}</code>
-          <b>Target:</b> <code>${{ github.event.inputs.BUILD_TARGET }}</code>
-          <b>Date:</b> <code>${{ env.BUILD_DATE }} ${{ env.BUILD_TIME }}</code>
+          <b>👤 Builder:</b> <code>${{ env.BUILD_AUTHOR }}</code>
+          <b>📱 Device:</b> <code>${{ github.event.inputs.DEVICE_NAME }}</code>
+          <b>🎯 Target:</b> <code>${{ github.event.inputs.BUILD_TARGET }}</code>
           
           <b>📝 Error Logs:</b> <a href="${{ env.BUILD_LOG_URL }}">View</a>
         format: html
 
-    - name: Checking For Missing Dependencies
+    - name: Check Dependencies
       run: |
         cd tools
         mv -n libneeds ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
         mv -n ldcheck ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
         cd ../workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
         python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
-        echo "Done checking missing dependencies. Review, and reconfigure your tree."
+        echo "Dependency check completed"
       continue-on-error: true

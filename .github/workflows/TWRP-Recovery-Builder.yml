@@ -15,7 +15,7 @@ on:
       DEVICE_TREE_BRANCH:
         description: 'Device Tree Branch' 
         required: true
-        default: 'TWRP-12.1'
+        default: 'Test'
       BUILD_TARGET:
         description: 'Build Target' 
         required: true

@@ -246,7 +246,7 @@ jobs:
           
           **🔒 MD5:** `${{ env.MD5_IMG }}`
 
-    # Telegram Integration - Fixed Syntax
+    # Telegram Integration - Fixed with working action version
     - name: Prepare Telegram Assets
       run: |
         cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
@@ -271,7 +271,7 @@ jobs:
 
     - name: Send Telegram Success Notification
       if: success() && env.ARTIFACTS_COUNT > 0
-      uses: appleboy/telegram-action@v2.0.0
+      uses: appleboy/telegram-action@v1.0.0
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_TOKEN }}
@@ -286,24 +286,24 @@ jobs:
           <b>📝 Build Logs:</b> <a href="${{ env.BUILD_LOG_URL }}">View</a>
           
           <b>🔒 MD5:</b> <code>${{ env.MD5_IMG }}</code>
-        format: html
+        parse_mode: html
 
     - name: Upload Assets to Telegram
       if: success() && env.ARTIFACTS_COUNT > 0
-      uses: appleboy/telegram-action@v2.0.0
+      uses: appleboy/telegram-action@v1.0.0
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_TOKEN }}
-        document: ${{ env.TELEGRAM_ASSETS }}
+        files: ${{ env.TELEGRAM_ASSETS }}
         message: |
           <b>📦 TWRP Build Artifacts</b>
           <b>Device:</b> <code>${{ github.event.inputs.DEVICE_NAME }}</code>
           <b>Contains:</b> ${{ env.ARTIFACTS_COUNT }} files
-        format: html
+        parse_mode: html
 
     - name: Send Telegram Failure Notification
       if: failure()
-      uses: appleboy/telegram-action@v2.0.0
+      uses: appleboy/telegram-action@v1.0.0
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_TOKEN }}
@@ -314,7 +314,7 @@ jobs:
           <b>🎯 Target:</b> <code>${{ github.event.inputs.BUILD_TARGET }}</code>
           
           <b>📝 Error Logs:</b> <a href="${{ env.BUILD_LOG_URL }}">View</a>
-        format: html
+        parse_mode: html
 
     - name: Check Dependencies
       run: |

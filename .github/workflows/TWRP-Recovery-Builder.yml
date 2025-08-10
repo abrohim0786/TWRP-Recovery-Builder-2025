@@ -42,11 +42,6 @@ on:
         description: 'Path of blobs to check' 
         required: true
         default: 'system/bin/qseecomd'
-      RECOVERY_TAR:
-        description: 'Release Recovery.tar For Samsung devices'
-        required: false
-        default: false
-        type: boolean
       RECOVERY_INSTALLER:
         description: 'Include recovery installer.zip'
         type: boolean
@@ -65,10 +60,10 @@ jobs:
       contents: write
 
     steps:
-    - name: Check Out
+    - name: Check Out Repository
       uses: actions/checkout@v4
       
-    - name: Display Build Info
+    - name: Display Build Configuration
       run: |
         echo "::group::📱 TWRP Build Configuration"
         echo "Builder: ${{ env.BUILD_AUTHOR }}"
@@ -215,14 +210,6 @@ jobs:
         echo "INSTALLER_EXISTS=true" >> $GITHUB_ENV
       continue-on-error: true
         
-    - name: Create Samsung Recovery Tar
-      if: ${{ github.event.inputs.RECOVERY_TAR }}
-      run: |
-        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
-        tar -cvf ${{ env.RECOVERY_TYPE }}.tar ${{ env.RECOVERY_FILE }}
-        echo "TAR_EXISTS=true" >> $GITHUB_ENV
-      continue-on-error: true
-        
     - name: Upload to GitHub Release
       uses: softprops/action-gh-release@v1
       id: create_release
@@ -230,7 +217,6 @@ jobs:
         files: |
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_FILE }}
           workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery-installer.zip
-          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_TYPE }}.tar
         name: "TWRP ${{ env.RECOVERY_TYPE }} for ${{ github.event.inputs.DEVICE_NAME }} (${{ env.BUILD_DATE }})"
         tag_name: "${{ github.event.inputs.DEVICE_NAME }}-${{ env.BUILD_DATE }}-${{ env.BUILD_TIME }}"
         body: |
@@ -245,76 +231,6 @@ jobs:
           - Commit: [${{ env.COMMIT_ID }}](${{ env.DEVICE_TREE_URL }}/commit/${{ env.COMMIT_ID }})  
           
           **🔒 MD5:** `${{ env.MD5_IMG }}`
-
-    # Telegram Integration - Fixed with working action version
-    - name: Prepare Telegram Assets
-      run: |
-        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
-        mkdir -p telegram_assets
-        
-        # Copy only existing files
-        [ -f ${{ env.RECOVERY_FILE }} ] && cp ${{ env.RECOVERY_FILE }} telegram_assets/
-        [ -f recovery-installer.zip ] && cp recovery-installer.zip telegram_assets/
-        [ "${{ github.event.inputs.RECOVERY_TAR }}" = "true" ] && [ -f ${{ env.RECOVERY_TYPE }}.tar ] && cp ${{ env.RECOVERY_TYPE }}.tar telegram_assets/
-        
-        ARTIFACTS_COUNT=$(ls -1 telegram_assets 2>/dev/null | wc -l)
-        echo "ARTIFACTS_COUNT=$ARTIFACTS_COUNT" >> $GITHUB_ENV
-        echo "RELEASE_URL=${{ steps.create_release.outputs.html_url }}" >> $GITHUB_ENV
-        echo "BUILD_LOG_URL=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_ENV
-
-    - name: Compress Assets for Telegram
-      if: env.ARTIFACTS_COUNT > 0
-      run: |
-        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
-        tar -zcvf telegram_assets.tar.gz telegram_assets/
-        echo "TELEGRAM_ASSETS=$(pwd)/telegram_assets.tar.gz" >> $GITHUB_ENV
-
-    - name: Send Telegram Success Notification
-      if: success() && env.ARTIFACTS_COUNT > 0
-      uses: appleboy/telegram-action@v1.0.0
-      with:
-        to: ${{ secrets.TELEGRAM_CHAT_ID }}
-        token: ${{ secrets.TELEGRAM_TOKEN }}
-        message: |
-          <b>✅ TWRP Build Completed Successfully!</b>
-          <b>👤 Builder:</b> <code>${{ env.BUILD_AUTHOR }}</code>
-          <b>📱 Device:</b> <code>${{ github.event.inputs.DEVICE_NAME }}</code>
-          <b>📦 Type:</b> <code>${{ env.RECOVERY_TYPE }}</code>
-          <b>📅 Date:</b> <code>${{ env.BUILD_DATE }} ${{ env.BUILD_TIME }}</code>
-          
-          <b>🔗 GitHub Release:</b> <a href="${{ env.RELEASE_URL }}">Download</a>
-          <b>📝 Build Logs:</b> <a href="${{ env.BUILD_LOG_URL }}">View</a>
-          
-          <b>🔒 MD5:</b> <code>${{ env.MD5_IMG }}</code>
-        parse_mode: html
-
-    - name: Upload Assets to Telegram
-      if: success() && env.ARTIFACTS_COUNT > 0
-      uses: appleboy/telegram-action@v1.0.0
-      with:
-        to: ${{ secrets.TELEGRAM_CHAT_ID }}
-        token: ${{ secrets.TELEGRAM_TOKEN }}
-        files: ${{ env.TELEGRAM_ASSETS }}
-        message: |
-          <b>📦 TWRP Build Artifacts</b>
-          <b>Device:</b> <code>${{ github.event.inputs.DEVICE_NAME }}</code>
-          <b>Contains:</b> ${{ env.ARTIFACTS_COUNT }} files
-        parse_mode: html
-
-    - name: Send Telegram Failure Notification
-      if: failure()
-      uses: appleboy/telegram-action@v1.0.0
-      with:
-        to: ${{ secrets.TELEGRAM_CHAT_ID }}
-        token: ${{ secrets.TELEGRAM_TOKEN }}
-        message: |
-          <b>❌ TWRP Build Failed!</b>
-          <b>👤 Builder:</b> <code>${{ env.BUILD_AUTHOR }}</code>
-          <b>📱 Device:</b> <code>${{ github.event.inputs.DEVICE_NAME }}</code>
-          <b>🎯 Target:</b> <code>${{ github.event.inputs.BUILD_TARGET }}</code>
-          
-          <b>📝 Error Logs:</b> <a href="${{ env.BUILD_LOG_URL }}">View</a>
-        parse_mode: html
 
     - name: Check Dependencies
       run: |

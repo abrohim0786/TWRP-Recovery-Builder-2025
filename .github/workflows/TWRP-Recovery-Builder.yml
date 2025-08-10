@@ -1,10 +1,10 @@
-name: TWRP Recovery Builder by ツ๛abrohim๛
+name: TWRP Recovery Builder for Xiaomi Redmi K40 Gaming & Poco F3 GT
 
 on:
   workflow_dispatch:
     inputs:
       MANIFEST_BRANCH:
-        description: 'TWRP Minimal-Manifest Branch'
+        description: 'TWRP Manifest Branch'
         required: true
         default: 'twrp-12.1'
         type: choice
@@ -12,25 +12,12 @@ on:
         - twrp-14.1
         - twrp-12.1
         - twrp-11
-        - twrp-9.0
-      DEVICE_TREE:
-        description: 'Custom Recovery Tree' 
-        required: true
-        default: 'https://github.com/abrohim0786/device_xiaomi_ares.git'
       DEVICE_TREE_BRANCH:
-        description: 'Custom Recovery Tree Branch' 
+        description: 'Device Tree Branch' 
         required: true
         default: 'TWRP-12.1'
-      DEVICE_PATH:
-        description: 'Specify your Device Path' 
-        required: true
-        default: 'device/xiaomi/ares'
-      DEVICE_NAME:
-        description: 'Specify your Device Codename' 
-        required: true
-        default: 'ares'
       BUILD_TARGET:
-        description: 'Specify your Build Target' 
+        description: 'Build Target' 
         required: true
         default: 'boot'
         type: choice
@@ -38,10 +25,6 @@ on:
         - boot
         - recovery
         - vendorboot
-      LDCHECK:
-        description: 'Path of blobs to check' 
-        required: true
-        default: 'system/bin/qseecomd'
       RECOVERY_INSTALLER:
         description: 'Include recovery installer.zip'
         type: boolean
@@ -50,197 +33,157 @@ on:
 
 jobs:
   build:
-    name: Build TWRP by ツ๛abrohim๛
+    name: Build TWRP for K40 Gaming/F3 GT by ツ๛abrohim๛
     runs-on: ubuntu-latest
-    if: github.event.repository.owner.id == github.event.sender.id
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      BUILD_AUTHOR: "ツ๛abrohim๛"
-    permissions:
-      contents: write
+      DEVICE_NAME: ares
+      DEVICE_PATH: device/xiaomi/ares
+      DEVICE_TREE: https://github.com/abrohim0786/device_xiaomi_ares.git
+      CCACHE_DIR: /tmp/ccache
+      USE_CCACHE: 1
+      CCACHE_COMPRESS: 1
+      CCACHE_MAXSIZE: 15G
 
     steps:
-    - name: Check Out Repository
+    - name: 🚀 Initialize Build
       uses: actions/checkout@v4
-      
-    - name: Display Build Configuration
-      run: |
-        echo "::group::📱 TWRP Build Configuration"
-        echo "Builder: ${{ env.BUILD_AUTHOR }}"
-        echo "Manifest Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}"
-        echo "Device Tree: ${{ github.event.inputs.DEVICE_TREE }}"
-        echo "Device Branch: ${{ github.event.inputs.DEVICE_TREE_BRANCH }}"
-        echo "Device Path: ${{ github.event.inputs.DEVICE_PATH }}"
-        echo "Device Name: ${{ github.event.inputs.DEVICE_NAME }}"
-        echo "Build Target: ${{ github.event.inputs.BUILD_TARGET }}"
-        echo "::endgroup::"
 
-    - name: Cleanup Workspace
-      uses: rokibhasansagar/slimhub_actions@main
-      
-    - name: Free Disk Space
-      run: |
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-        sudo docker rmi $(sudo docker images -q) || true
-
-    - name: Set Swap Space
-      uses: pierotofy/set-swap-space@master
+    - name: ⚡ Setup Turbo Cache
+      uses: actions/cache@v3
       with:
-        swap-size-gb: 24
-        
-    - name: Install Build Dependencies
+        path: /tmp/ccache
+        key: ccache-${{ github.run_id }}
+
+    - name: 🛠️ Install Build Tools
       run: |
-        sudo apt update
-        sudo apt -y upgrade
-        sudo dpkg --add-architecture i386
-        sudo apt update
-        sudo apt -y install gperf gcc-multilib gcc-10-multilib g++-multilib g++-10-multilib \
-          ncurses-dev x11proto-core-dev lib32z-dev libgl1-mesa-dev libxml2-utils xsltproc bc \
-          ccache lib32readline-dev lib32z1-dev liblz4-tool libsdl1.2-dev libwxgtk3.2-dev lzop \
-          pngcrush schedtool squashfs-tools imagemagick libbz2-dev lzma ncftp qemu-user-static \
-          libstdc++-10-dev libtinfo6 libgflags-dev
-        sudo add-apt-repository universe
-        sudo apt -y install libncurses6 libncurses6:i386
-        
-    - name: Install Java JDK
+        sudo apt-get update -qq
+        sudo apt-get install -y ccache coreutils
+        ccache -M 15G
+        sudo apt-get -y install gperf libncurses6 libncurses6:i386 \
+        gcc-multilib g++-multilib lib32z-dev libgl1-mesa-dev libxml2-utils \
+        xsltproc bc libsdl1.2-dev libwxgtk3.2-dev lzop pngcrush schedtool \
+        squashfs-tools imagemagick libbz2-dev lzma ncftp libstdc++-10-dev \
+        libtinfo6 libgflags-dev repo git-lfs curl
+
+    - name: ☕ Install Java
       uses: actions/setup-java@v4
       with:
         distribution: zulu
         java-version: 8
 
-    - name: Install Repo Tool
+    - name: 📥 Setup Repo Environment
       run: |
-        mkdir ~/bin
+        mkdir -p ~/bin
         curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
         chmod a+x ~/bin/repo
         sudo ln -sf ~/bin/repo /usr/bin/repo
+        
+        git config --global user.name "ツ๛abrohim๛"
+        git config --global user.email "callofduty.pubg786@gmail.com"
+        
+        # Select manifest
+        if [[ "${{ inputs.MANIFEST_BRANCH }}" =~ ^twrp-(11|12.1|14.1)$ ]]; then
+          MANIFEST_URL="https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git"
+        else
+          MANIFEST_URL="https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git"
+        fi
 
-    - name: Select Manifest Source
-      uses: haya14busa/action-cond@v1
-      id: manifest
-      with:
-        cond: ${{ github.event.inputs.MANIFEST_BRANCH == 'twrp-11' || github.event.inputs.MANIFEST_BRANCH == 'twrp-12.1'  || github.event.inputs.MANIFEST_BRANCH == 'twrp-14.1' }}
-        if_true: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
-        if_false: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git
-
-    - name: Initialize Repo
-      run: |
         mkdir workspace
         cd workspace
-        git config --global user.name "${{ env.BUILD_AUTHOR }}"
-        git config --global user.email "callofduty.pubg786@gmail.com"
-        repo init --depth=1 -u ${{ steps.manifest.outputs.value }} -b ${{ github.event.inputs.MANIFEST_BRANCH }}
-  
-    - name: Sync Source Code
-      run: |
-        cd workspace
-        repo sync -j$(nproc --all) --force-sync
+        repo init --depth=1 --no-repo-verify -u $MANIFEST_URL -b ${{ inputs.MANIFEST_BRANCH }}
 
-    - name: Clone Device Tree
+    - name: 🔄 Sync Source Code
       run: |
         cd workspace
-        git clone ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
-        cd ${{ github.event.inputs.DEVICE_PATH }}
-        echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
+        repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
-    - name: Find Makefile
+    - name: 🌳 Clone Device Tree
       run: |
         cd workspace
-        if [ -f ${{ github.event.inputs.DEVICE_PATH }}/twrp_${{ github.event.inputs.DEVICE_NAME}}.mk ]; then
-            echo "DEVICE_MAKEFILE=twrp_${{ github.event.inputs.DEVICE_NAME }}" >> $GITHUB_ENV
-        elif [ -f ${{ github.event.inputs.DEVICE_PATH }}/omni_${{ github.event.inputs.DEVICE_NAME}}.mk ]; then
-            echo "DEVICE_MAKEFILE=omni_${{ github.event.inputs.DEVICE_NAME }}" >> $GITHUB_ENV
+        git clone ${{ env.DEVICE_TREE }} -b ${{ inputs.DEVICE_TREE_BRANCH }} ./${{ env.DEVICE_PATH }}
+        echo "COMMIT_ID=$(cd ${{ env.DEVICE_PATH }} && git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+    - name: 🔍 Find Device Makefile
+      run: |
+        cd workspace/${{ env.DEVICE_PATH }}
+        if [ -f twrp_${{ env.DEVICE_NAME }}.mk ]; then
+          echo "DEVICE_MAKEFILE=twrp_${{ env.DEVICE_NAME }}" >> $GITHUB_ENV
+        elif [ -f omni_${{ env.DEVICE_NAME }}.mk ]; then
+          echo "DEVICE_MAKEFILE=omni_${{ env.DEVICE_NAME }}" >> $GITHUB_ENV
         else
-            echo "::warning::No recovery makefile found!"
+          echo "::error::❌ No device makefile found!"
+          exit 1
         fi
-      continue-on-error: true
-      
-    - name: Install Python 2 (Legacy Branches)
-      if: github.event.inputs.MANIFEST_BRANCH != 'twrp-11' && github.event.inputs.MANIFEST_BRANCH != 'twrp-12.1'  && github.event.inputs.MANIFEST_BRANCH != 'twrp-14'
+
+    - name: 🐍 Configure Python
+      if: ${{ contains(inputs.MANIFEST_BRANCH, 'twrp-9.0') }}
       run: |
-        sudo apt -y install python2
+        sudo apt-get install -y python2
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: Build Recovery Image 
+    - name: ⚙️ Build Recovery Image
+      timeout-minutes: 120
       run: |
         cd workspace
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
         lunch ${{ env.DEVICE_MAKEFILE }}-eng
-        make clean
-        make ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
-        echo "✅ Build completed: ${{ github.event.inputs.BUILD_TARGET }}.img"
-      
-    - name: Set Build Metadata
-      run: |
-        echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
-        echo "BUILD_TIME=$(date +%H%M)" >> $GITHUB_ENV
-        DEVICE_TREE_URL="${{ github.event.inputs.DEVICE_TREE }}"
-        if [[ "${DEVICE_TREE_URL}" == *.git ]]; then
-          DEVICE_TREE_URL="${DEVICE_TREE_URL%.git}"
-        fi
-        echo "DEVICE_TREE_URL=${DEVICE_TREE_URL}" >> $GITHUB_ENV
+        make -j$(nproc --all) ${{ inputs.BUILD_TARGET }}image
+        echo "BUILD_DATE=$(date +'%Y-%m-%d %H:%M')" >> $GITHUB_ENV
+        echo "BUILD_VERSION=${{ env.DEVICE_MAKEFILE }}-${{ github.run_number }}" >> $GITHUB_ENV
 
-    - name: Locate Output Files
+    - name: 📦 Package Artifacts
       run: |
-        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
-        if [ -f recovery.img ]; then
-            echo "RECOVERY_TYPE=recovery" >> $GITHUB_ENV
-            echo "RECOVERY_FILE=recovery.img" >> $GITHUB_ENV
-            echo "MD5_IMG=$(md5sum recovery.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
-        elif [ -f boot.img ]; then
-            echo "RECOVERY_TYPE=boot" >> $GITHUB_ENV
-            echo "RECOVERY_FILE=boot.img" >> $GITHUB_ENV
-            echo "MD5_IMG=$(md5sum boot.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
-        elif [ -f vendor_boot.img ]; then
-            echo "RECOVERY_TYPE=vendor_boot" >> $GITHUB_ENV
-            echo "RECOVERY_FILE=vendor_boot.img" >> $GITHUB_ENV
-            echo "MD5_IMG=$(md5sum vendor_boot.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
-        else
-            echo "::error::No recovery file found in output directory!"
-            exit 1
-        fi
-
-    - name: Add Recovery Installer
-      if: ${{ github.event.inputs.RECOVERY_INSTALLER }}
-      run: |
-        cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
-        wget -q https://github.com/kinguser981/recovery-installer/releases/download/zip/recovery-installer.zip
-        zip -ur recovery-installer.zip ${{ env.RECOVERY_FILE }}
-        echo "INSTALLER_EXISTS=true" >> $GITHUB_ENV
-      continue-on-error: true
+        cd workspace/out/target/product/${{ env.DEVICE_NAME }}
+        BUILD_FILE="${{ inputs.BUILD_TARGET }}.img"
         
-    - name: Upload to GitHub Release
-      uses: softprops/action-gh-release@v1
-      id: create_release
-      with:
-        files: |
-          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_FILE }}
-          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery-installer.zip
-        name: "TWRP ${{ env.RECOVERY_TYPE }} for ${{ github.event.inputs.DEVICE_NAME }} (${{ env.BUILD_DATE }})"
-        tag_name: "${{ github.event.inputs.DEVICE_NAME }}-${{ env.BUILD_DATE }}-${{ env.BUILD_TIME }}"
-        body: |
-          ### 🛠 TWRP Recovery by ${{ env.BUILD_AUTHOR }}
-          **📱 Device:** ${{ github.event.inputs.DEVICE_NAME }}  
-          **🔧 Build Type:** ${{ env.RECOVERY_TYPE }}  
-          **📅 Build Date:** ${{ env.BUILD_DATE }} ${{ env.BUILD_TIME }}  
-          
-          **🔗 Source Information:**  
-          - Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}  
-          - Device Tree: [${{ github.event.inputs.DEVICE_TREE_BRANCH }}](${{ env.DEVICE_TREE_URL }}/tree/${{ github.event.inputs.DEVICE_TREE_BRANCH }})  
-          - Commit: [${{ env.COMMIT_ID }}](${{ env.DEVICE_TREE_URL }}/commit/${{ env.COMMIT_ID }})  
-          
-          **🔒 MD5:** `${{ env.MD5_IMG }}`
-
-    - name: Check Dependencies
-      run: |
-        if [ -d "tools" ]; then
-          cd tools
-          mkdir -p ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
-          [ -f libneeds ] && cp libneeds ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
-          [ -f ldcheck ] && cp ldcheck ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
-          cd ../workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
-          python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
+        # Generate MD5 checksum
+        md5sum $BUILD_FILE > $BUILD_FILE.md5
+        
+        # Create installer if requested
+        if [ "${{ inputs.RECOVERY_INSTALLER }}" = "true" ]; then
+          wget -q https://github.com/kinguser981/recovery-installer/releases/latest/download/recovery-installer.zip
+          zip -ur recovery-installer.zip $BUILD_FILE
         fi
-        echo "Dependency check completed"
-      continue-on-error: true
+
+    - name: 🚀 Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: "TWRP ${{ inputs.BUILD_TARGET }} for Xiaomi Redmi K40 Gaming & Poco F3 GT (${{ env.BUILD_VERSION }})"
+        tag_name: ${{ env.BUILD_VERSION }}
+        body: |
+          ### 🔧 Custom TWRP Build for Xiaomi Redmi K40 Gaming & Poco F3 GT (ares)
+          
+          **Builder:** ツ๛abrohim๛  
+          **Build Date:** ${{ env.BUILD_DATE }}  
+          **Build ID:** [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          
+          **Build Details**  
+          - Manifest: ${{ inputs.MANIFEST_BRANCH }}  
+          - Device Tree: [${{ env.DEVICE_TREE }}@${{ inputs.DEVICE_TREE_BRANCH }}](${{ env.DEVICE_TREE }}/tree/${{ inputs.DEVICE_TREE_BRANCH }})  
+          - Commit: [${{ env.COMMIT_ID }}](${{ env.DEVICE_TREE }}/commit/${{ env.COMMIT_ID }})  
+          - Target: ${{ inputs.BUILD_TARGET }}  
+          
+          **Download:**  
+          - Recovery Image: `${{ inputs.BUILD_TARGET }}.img`  
+          - Installer ZIP: `recovery-installer.zip` (if enabled)
+          
+          **Verification:**  
+          ```bash
+          md5sum: $(cat ${{ inputs.BUILD_TARGET }}.img.md5)
+          ```
+        files: |
+          workspace/out/target/product/${{ env.DEVICE_NAME }}/${{ inputs.BUILD_TARGET }}.img
+          workspace/out/target/product/${{ env.DEVICE_NAME }}/${{ inputs.BUILD_TARGET }}.img.md5
+          workspace/out/target/product/${{ env.DEVICE_NAME }}/recovery-installer.zip
+        draft: false
+        prerelease: false
+
+    - name: 🎉 Build Complete
+      run: |
+        echo "================================================"
+        echo "✅ TWRP build completed successfully!"
+        echo "📦 Artifacts available in GitHub Releases"
+        echo "🔧 Built by ツ๛abrohim๛ for Xiaomi Redmi K40 Gaming & Poco F3 GT"
+        echo "================================================"

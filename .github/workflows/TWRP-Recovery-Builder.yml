@@ -88,7 +88,6 @@ jobs:
         sudo rm -rf "$AGENT_TOOLSDIRECTORY"
         sudo docker rmi $(sudo docker images -q) || true
 
-    # FIXED: Corrected action name from set-swarm-space to set-swap-space
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
@@ -247,7 +246,7 @@ jobs:
           
           **🔒 MD5:** `${{ env.MD5_IMG }}`
 
-    # Telegram Integration
+    # Telegram Integration - Fixed Syntax
     - name: Prepare Telegram Assets
       run: |
         cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
@@ -256,22 +255,23 @@ jobs:
         # Copy only existing files
         [ -f ${{ env.RECOVERY_FILE }} ] && cp ${{ env.RECOVERY_FILE }} telegram_assets/
         [ -f recovery-installer.zip ] && cp recovery-installer.zip telegram_assets/
-        [ ${{ github.event.inputs.RECOVERY_TAR }} = true ] && [ -f ${{ env.RECOVERY_TYPE }}.tar ] && cp ${{ env.RECOVERY_TYPE }}.tar telegram_assets/
+        [ "${{ github.event.inputs.RECOVERY_TAR }}" = "true" ] && [ -f ${{ env.RECOVERY_TYPE }}.tar ] && cp ${{ env.RECOVERY_TYPE }}.tar telegram_assets/
         
-        echo "ARTIFACTS_COUNT=$(ls -1 telegram_assets 2>/dev/null | wc -l)" >> $GITHUB_ENV
+        ARTIFACTS_COUNT=$(ls -1 telegram_assets 2>/dev/null | wc -l)
+        echo "ARTIFACTS_COUNT=$ARTIFACTS_COUNT" >> $GITHUB_ENV
         echo "RELEASE_URL=${{ steps.create_release.outputs.html_url }}" >> $GITHUB_ENV
         echo "BUILD_LOG_URL=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_ENV
 
     - name: Compress Assets for Telegram
-      if: ${{ env.ARTIFACTS_COUNT > 0 }}
+      if: env.ARTIFACTS_COUNT > 0
       run: |
         cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
         tar -zcvf telegram_assets.tar.gz telegram_assets/
         echo "TELEGRAM_ASSETS=$(pwd)/telegram_assets.tar.gz" >> $GITHUB_ENV
 
     - name: Send Telegram Success Notification
-      if: ${{ success() && env.ARTIFACTS_COUNT > 0 }}
-      uses: appleboy/telegram-action@master
+      if: success() && env.ARTIFACTS_COUNT > 0
+      uses: appleboy/telegram-action@v2.0.0
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_TOKEN }}
@@ -289,8 +289,8 @@ jobs:
         format: html
 
     - name: Upload Assets to Telegram
-      if: ${{ success() && env.ARTIFACTS_COUNT > 0 }}
-      uses: appleboy/telegram-action@master
+      if: success() && env.ARTIFACTS_COUNT > 0
+      uses: appleboy/telegram-action@v2.0.0
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_TOKEN }}
@@ -302,8 +302,8 @@ jobs:
         format: html
 
     - name: Send Telegram Failure Notification
-      if: ${{ failure() }}
-      uses: appleboy/telegram-action@master
+      if: failure()
+      uses: appleboy/telegram-action@v2.0.0
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_TOKEN }}
@@ -318,10 +318,13 @@ jobs:
 
     - name: Check Dependencies
       run: |
-        cd tools
-        mv -n libneeds ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
-        mv -n ldcheck ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
-        cd ../workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
-        python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
+        if [ -d "tools" ]; then
+          cd tools
+          mkdir -p ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
+          [ -f libneeds ] && cp libneeds ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
+          [ -f ldcheck ] && cp ldcheck ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/
+          cd ../workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
+          python3 ldcheck -p system/lib64:vendor/lib64:system/lib:vendor/lib -d ${{ github.event.inputs.LDCHECK }}
+        fi
         echo "Dependency check completed"
       continue-on-error: true
